@@ -1,0 +1,589 @@
+install.packages("tidytext")
+install.packages("tidyr")
+install.packages("stringr")
+install.packages("qdapTools")
+install.packages("ggplot2")
+install.packages("magrittr")
+install.packages("dplyr")
+install.packages("lubridate")
+install.packages("ggridges")
+install.packages("xml2")
+install.packages("tm")
+install.packages("SnowballC")
+install.packages("wordcloud") 
+install.packages("RColorBrewer")
+install.packages("ggthemes")
+
+library(tidytext)
+library(tidyr)
+library(stringr)
+library(qdapTools)
+library(ggplot2)
+library(ggthemes)
+library(magrittr)
+library(dplyr)
+library(lubridate)
+library(ggridges)
+library(tm)
+library(SnowballC)
+library(RColorBrewer)
+library(wordcloud)
+
+#%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+#LOADING DATA
+#%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+All_comments <- read.csv("/home/pamotis/anaconda3/Memoire/subreddit_paragon_comments.csv", 
+                         header=TRUE, stringsAsFactors=FALSE) 
+All_comments %>% glimpse()
+
+All_comments$X<-NULL
+comments<-unique(All_comments)
+write.csv((comments), "/home/pamotis/anaconda3/Memoire/ParagonCommentsClean.csv")
+
+#%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+#AFINN dictionary
+#%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+
+AFINN <- sentiments %>%
+  filter(lexicon == "AFINN") %>%
+  select(word, afinn_score = score)
+
+#%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+#Code used to retrieve comments later
+#%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+#Retrieve Comments Code:
+#<Word>_<analysis name>comments<- subset(DATASET, word=="<Word>")
+#<Word>comm<analysis name><-semi_join(comments ,<Word>_<analysis name>comments,  by="comm_id")
+#write.csv(<Word>commelement, "/home/pamotis/anaconda3/Memoire/Comments/<Word>sentmisscomm<analysisname>.csv")
+#Personal tip: In the name file is always useful to add a number (ex. <Number><Word>sentmisscommperiod.csv) as it facilitates the index on the file manager
+
+
+#example
+bad_comments<- subset(all_sentiment, word=="bad")
+badcomm<-semi_join(TotalMentionsComments, bad_comments, by="comm_id")
+write.csv(badcomm, "/home/pamotis/anaconda3/Memoire/Comments/1badsentmisscomm.csv")
+
+
+#%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+#Simple Text Analysis: Wordcloud + Frequency + Association
+#%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+wordsincomment<-readLines("/home/pamotis/anaconda3/Memoire/WordCloudtexthere.txt")
+docs<-Corpus(VectorSource(wordsincomment))
+
+toSpace <- content_transformer(function (x , pattern ) gsub(pattern, " ", x))
+docs <- tm_map(docs, toSpace, "/")
+docs <- tm_map(docs, toSpace, "@")
+docs <- tm_map(docs, toSpace, "\\|")
+
+# Convert the text to lower case
+docs <- tm_map(docs, content_transformer(tolower))
+# Remove numbers
+docs <- tm_map(docs, removeNumbers)
+# Remove english common stopwords
+docs <- tm_map(docs, removeWords, stopwords("english"))
+# Remove punctuations
+docs <- tm_map(docs, removePunctuation)
+# Eliminate extra white spaces
+docs <- tm_map(docs, stripWhitespace)
+# Text stemming
+docs <- tm_map(docs, stemDocument)
+
+
+dtm <- TermDocumentMatrix(docs)
+m <- as.matrix(dtm)
+v <- sort(rowSums(m),decreasing=TRUE)
+dtwc <- data.frame(word = names(v),freq=v)
+head(dtwc, 10)
+
+set.seed(42)
+wordcloud(words = dtwc$word, freq = dtwc$freq, min.freq = 1,
+          max.words=400, random.order=FALSE, rot.per=0.35, 
+          colors=brewer.pal(8, "Set1"))
+
+fqTerms<- findFreqTerms(dtm, lowfreq = 4)
+Associations<- findAssocs(dtm, terms = "INSERTWORD", corlimit = 0.2)
+head(dtwc, 50)
+barplot(dtwc[1:50,]$freq, las = 2, names.arg = dtwc[1:50,]$word,
+        col ="Red", main ="Most frequent words",
+        ylab = "Word frequencies")
+
+associations_df <- list_vect2df(Associations)[, 2:3]
+head(associations_df)
+
+ggplot(associations_df, aes(X3, X2)) + 
+  geom_point(size = 3) + 
+  theme_gdocs()
+
+#%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+#Analysis MAPS getting the data ready
+#%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+#Extracting Comments
+Monolithdict<-c("monolith","Monolith")
+monolith_comments <- comments %>%
+  filter(str_detect(body,  paste(Monolithdict,collapse = '|'))) %>% glimpse()
+write.csv((monolith_comments), "/home/pamotis/anaconda3/Memoire/monolith_mentions.csv")
+
+
+Legacydict<-c("Legacy","legacy")
+legacy_comments <- comments %>%
+  filter(str_detect(body,  paste(Legacydict,collapse = '|'))) %>% glimpse()
+write.csv((legacy_comments), "/home/pamotis/anaconda3/Memoire/legacy_mentions.csv")
+
+#adding map column to data
+
+a<-"Legacy"
+MapLegacy <- data.frame(Map=rep(a,times=276))
+All_legacy_comments<-cbind(legacy_comments, MapLegacy)
+
+
+b<-c("Monolith")
+MapMonolith<-data.frame(Map=rep(b,times=189))
+All_monolith_comments<-cbind(monolith_comments,MapMonolith)
+
+#join (All joins get warnings. This is true for the rest)
+
+TotalMentions <-full_join(legacy_comments,monolith_comments)
+DuplicatedMentions <- full_join(All_legacy_comments, All_monolith_comments)
+
+
+
+
+
+#%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+#Sentiment analysis MAPS 
+#%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+TotalMentionsComments <- DuplicatedMentions
+
+write.csv((TotalMentionsComments), "/home/pamotis/anaconda3/Memoire/all_mapscomms.csv")
+
+
+all_sentiment <- TotalMentionsComments %>%
+  select(body, timestamp, Map, comm_id) %>%
+  unnest_tokens(word, body) %>%
+  anti_join(stop_words) %>%
+  inner_join(AFINN, by = "word") %>%
+  group_by(Map, word, comm_id) %>%
+  summarize(sentiment = mean(afinn_score))
+
+write.csv((all_sentiment), "/home/pamotis/anaconda3/Memoire/all_sentiment.csv")
+
+
+ggplot(all_sentiment, aes(x=Map, y = sentiment)) +
+  geom_point() +
+  geom_count() +
+  geom_text(aes(label = word), check_overlap = TRUE, vjust = 2, hjust = 1) +
+  geom_hline(yintercept = mean(all_sentiment$sentiment), color = "green", lty = 2)
+
+all_sentiment_wordcount <- all_sentiment %>%
+  select(Map, word, sentiment, comm_id) %>%
+  group_by(word,Map) %>%
+  tally()
+#Since we have 2 different populations (n) we will rename the second n to k.
+#"n" will be for the total amount of mentions of the word
+#"k" will be the amount of mentions of the same word by group
+colnames(all_sentiment_wordcount)[colnames(all_sentiment_wordcount)=="n"] <- "k"
+
+Bind_sent_and_word <- all_sentiment %>%
+  full_join(all_sentiment_wordcount, by="word")
+
+ggplot(Bind_sent_and_word, aes(y=k, x=sentiment, color=Map.y)) +
+  geom_count()+
+  labs(y="Group comments mentions")+
+  geom_text(aes(label = word), check_overlap = TRUE, vjust = 1.3, hjust = 1) +
+  geom_vline(xintercept = mean(Bind_sent_and_word$sentiment), color = "red", lty = 2)+
+  facet_wrap(~Map.y)
+
+ Filtered_sent_vs_word <- Bind_sent_and_word %>%
+  filter(Map.y == "Legacy" | Map.y == "Monolith") %>% glimpse()
+
+ggplot(Filtered_sent_vs_word, aes(y=n, x=sentiment, color=Map.y)) +
+  geom_point()+
+  geom_text(aes(label = word), check_overlap = TRUE, vjust = 2, hjust = 1.1)+
+  geom_vline(xintercept = mean(all_sentiment$sentiment), color = "red", lty = 2)
+
+
+#%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+#Analysis 2 groups by DATE - DATA
+#%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+#Three groups, one by period, Legacy, Monolith and Post
+
+Legacy_period_comment<-subset( comments, created < 1480982400)
+Monolith_period_comment<-subset( comments,  created > 1480982400 & created < 1524787199)
+Post_period_comment<- subset(comments, created > 1524787199)
+
+#Add a column for period
+
+Pre <- data.frame(Period=rep(a,times=1634))
+PeriodLegacy <- cbind(Legacy_period_comment, Pre)
+
+Mon<- data.frame(Period=rep(b,times=4693))
+PeriodMonolith <- cbind(Monolith_period_comment, Mon)
+
+c<-"Post"
+Post<- data.frame(Period=rep(c,times=104))
+PeriodPost <- cbind(Post_period_comment, Post)
+
+JoinedPeriodPreandMon<-full_join(PeriodLegacy,PeriodMonolith)
+Period_all_comments<-full_join(JoinedPeriodPreandMon,PeriodPost)
+
+#%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+#Sentiment analysis Period 
+#%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+all_sentiment_period <- Period_all_comments %>%
+  select(body, timestamp, Period,comm_id) %>%
+  unnest_tokens(word, body) %>%
+  anti_join(stop_words) %>%
+  inner_join(AFINN, by = "word") %>%
+  group_by(Period, word, comm_id) %>%
+  summarize(sentiment = mean(afinn_score))
+
+all_sentiment_period
+
+write.csv((all_sentiment_period), "/home/pamotis/anaconda3/Memoire/all_sentiment_period.csv")
+
+
+ggplot(all_sentiment_period, aes(x=Period, y = all_sentiment_period$sentiment)) +
+  geom_point() +
+  geom_count() +
+  geom_text(aes(label = word), check_overlap = TRUE, vjust = 2, hjust = 1) + 
+  geom_hline(yintercept = mean(all_sentiment_period$sentiment), color = "red", lty = 2)
+
+
+all_sentiment_period_wordcount <- all_sentiment_period %>%
+  select(Period, word, sentiment, comm_id) %>%
+  group_by(word,Period) %>%
+  tally()
+#Since we have 2 different populations (n) we will rename the second n to k.
+#"n" will be for the total amount of mentions of the word
+#"k" will be the amount of mentions of the same word by group
+colnames(all_sentiment_period_wordcount)[colnames(all_sentiment_period_wordcount)=="n"] <- "k"
+
+Bind_sent_and_word_forPeriod <- all_sentiment_period %>%
+  full_join(all_sentiment_period_wordcount, by="word")
+glimpse(Bind_sent_and_word_forPeriod)
+
+ggplot(Bind_sent_and_word_forPeriod, aes(y=k, x=sentiment, color=Period.y)) +
+  geom_point() +
+  geom_text(aes(label = word), check_overlap = TRUE, vjust = 2, hjust = 1) +
+  facet_wrap(~Period.y)
+
+Filtered_sent_vs_wordforPeriod <- Bind_sent_and_word_forPeriod %>%
+  filter(Period.y == "Legacy" | Period.y == "Monolith" | Period.y =="Post") %>% glimpse()
+
+ggplot(Filtered_sent_vs_wordforPeriod, aes(y=k, x=sentiment, color=Period.y))+
+         labs(y="Group comments mentions")+
+         geom_point() +
+         geom_text(aes(label = word), check_overlap = TRUE, vjust = 1.7, hjust = 1.1)+ 
+         geom_vline(xintercept = mean(all_sentiment_period$sentiment), color = "red", lty = 2)
+
+#%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+#Third Analysis , Including elements - DATA
+#%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+Towersdict<-c("Towers","towers","Tower","tower","inhibitors","Inhibitors")
+Towers_comments <- Period_all_comments %>%
+  filter(str_detect(body, paste(Towersdict,collapse = '|'))) %>% glimpse()
+write.csv((Towers_comments), "/home/pamotis/anaconda3/Memoire/Towers_mentions.csv")
+
+OPHEROES<-c("Hero","Heroes","Nerf","hero","heroes","characters","character","Characters","Character","OP","op",
+            "Feng Mao","feng mao","feng","Feng",
+            "Riktor","rik","riktor","Rik",
+            "Grim.exe","grim.exe","Grim","grim",
+            "Crunch","crunch",
+            "Serath","serath",
+            "Gadget","gadget",
+            "Grux","grux",
+            "Sevarog","sevarog",
+            "Howitzer","howitzer","Howi","howi",
+            "Aurora","aurora",
+            "Kallari","kallari",
+            "Kwang","kwang",
+            "Muriel","muriel",
+            "Shinbi","shinbi",
+            "Phase","phase",
+            "Murdock","murdock",
+            "Iggy","Iggy & Scorch","iggy","iggy and scorch","Iggy and Scorch","Iggy & scorch","iggy & scorch","iggy and scorch","Iggy n scorch","iggy n scorch",
+            "Rampage","rampage",
+            "Revenant","revenant",
+            "Gideon","gideon",
+            "Sparrow","sparrow",
+            "Steel","steel",
+            "Greystone","greystone","Grey",
+            #grey not included as it can be easily confused with the color
+            "Lt. Belica","Belica","belica","lt belica","Lt belica","lt Belica","lt. belica",
+            "Khaimera","khaimera","Khaim","khaim",
+            "Dekker","dekker",
+            "TwinBlast","twinblast",
+            "Countess","countess",
+            "Fey","fey",
+            "Narbash","narbash",
+            "Wukong","wukong",
+            "Zinx","zinx",
+            "Yin","yin",
+            "Wraith","wraith",
+            "Terra","terra",
+            "Drongo","drongo")
+Heroes_comments <- Period_all_comments %>%
+  filter(str_detect(body, paste(OPHEROES,collapse = '|'))) %>% glimpse()
+write.csv((Heroes_comments), "/home/pamotis/anaconda3/Memoire/Heroes_mentions.csv")
+
+timedict<-c("time","Time")
+Time_comments <- Period_all_comments %>%
+  filter(str_detect(body, paste(timedict,collapse = '|'))) %>% glimpse()
+write.csv((Time_comments), "/home/pamotis/anaconda3/Memoire/Time_mentions.csv")
+
+CardSystemdict<-c("card","Card","cards","Cards")
+Card_comments <- Period_all_comments %>%
+  filter(str_detect(body, paste(CardSystemdict,collapse = '|'))) %>% glimpse()
+write.csv((Card_comments), "/home/pamotis/anaconda3/Memoire/Card_mentions.csv")
+
+NPC_buffsdict<-c("buffs","Buffs","Minions","minions","Camps","camps","Orb","orb","Helix","helix","Fangtooth","fangtooth","Prime","prime")
+NPC_buffs_comments <- Period_all_comments %>%
+  filter(str_detect(body, paste(NPC_buffsdict,collapse = '|'))) %>% glimpse()
+write.csv((NPC_buffs_comments), "/home/pamotis/anaconda3/Memoire/NPC_buffs_mentions.csv")
+
+Junggledict<-c("Jungle","jungle")
+Jungle_comments <- Period_all_comments %>%
+  filter(str_detect(body, paste(Junggledict,collapse = '|'))) %>% glimpse()
+write.csv((Jungle_comments), "/home/pamotis/anaconda3/Memoire/Jungle_mentions.csv")
+
+Lanesdict<-c("Lanes","lanes")
+Lane_comments <- Period_all_comments %>%
+  filter(str_detect(body, paste(Lanesdict,collapse = '|'))) %>% glimpse()
+write.csv((Lane_comments), "/home/pamotis/anaconda3/Memoire/Lanes_mentions.csv")
+
+TravelModedict<-c("Travel","movement","travel","Movement","movement speed")
+Travel_comments <- Period_all_comments %>%
+  filter(str_detect(body, paste(TravelModedict,collapse = '|'))) %>% glimpse()
+write.csv((Travel_comments), "/home/pamotis/anaconda3/Memoire/TravelMode_mentions.csv")
+
+
+Towers<-data.frame(Element=rep("Towers",time=224))
+Heroes<-data.frame(Element=rep("Heroes",time=3451))
+GameTime<-data.frame(Element=rep("GameTime",time=900))
+Cardsystem<-data.frame(Element=rep("CardSystel",time=493))
+NPC<-data.frame(Element=rep("NPC",time=243))
+Jungle<-data.frame(Element=rep("Jungle",time=217))
+Lanes<-data.frame(Element=rep("Lanes",time=82))
+TravelMode<-data.frame(Element=rep("TravelMode",time=192))
+
+All_tower_comments<-cbind(Towers_comments,Towers)
+All_heroes_comments<-cbind(Heroes_comments,Heroes)
+All_gametime_comments<-cbind(Time_comments,GameTime)
+All_cardsystem_comments<-cbind(Card_comments,Cardsystem)
+All_npc_comments<-cbind(NPC_buffs_comments,NPC)
+All_jungle_comments<-cbind(Jungle_comments,Jungle)
+All_lane_comments<-cbind(Lane_comments,Lanes)
+All_travelmode_comments<-cbind(Travel_comments,TravelMode)
+
+All_sentiment_elements<-full_join(All_tower_comments, All_heroes_comments) %>%
+  full_join(.,All_gametime_comments) %>% full_join(.,All_cardsystem_comments )%>% full_join(.,All_npc_comments)%>%
+  full_join(.,All_jungle_comments)%>% full_join(.,All_lane_comments)%>% full_join(.,All_travelmode_comments)
+
+#%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+#USAGE OVER TIME ANALYISIS ELEMENTS
+#%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+
+#Steping back to the original df that was used, and got alterned, to get the sentiment analysis (C/P from above)
+All_sentiment_elements<-full_join(All_tower_comments, All_heroes_comments) %>%
+  full_join(.,All_gametime_comments) %>% full_join(.,All_cardsystem_comments )%>% full_join(.,All_npc_comments)%>%
+  full_join(.,All_jungle_comments)%>% full_join(.,All_lane_comments)%>% full_join(.,All_travelmode_comments)
+
+All_sentiment_elements$date<- as.POSIXct(as.numeric(All_sentiment_elements$created), origin="1970-01-01")
+
+All_sentiment_elements$Month <- as.Date(cut(All_sentiment_elements$date,
+                                            breaks = "month"))
+
+All_sentiment_elements %>% 
+  arrange(date) %>% glimpse() 
+
+# Visualize mentions of each substance across time
+
+ggplot(All_sentiment_elements, aes(Month)) + geom_histogram(aes(fill=factor(Period)), stat = "count") +
+  facet_grid(Element~.,scale="free")
+
+
+# Look at all substance mentions over time using the Joy Division plot
+
+ggplot(All_sentiment_elements, aes(x = Month, y = Element)) + geom_density_ridges()
+
+
+#%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+#SENTIMENT ANALYSIS ELEMENTS 
+#%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+
+All_sentiment_elements <-All_sentiment_elements %>%
+  select(body, timestamp, Period,Element,comm_id) %>%
+  unnest_tokens(word, body) %>%
+  anti_join(stop_words) %>%
+  inner_join(AFINN, by = "word") %>%
+  group_by(Element, word, Period,comm_id) %>%
+  summarize(sentiment = mean(afinn_score))
+
+All_sentiment_elements
+write.csv((All_sentiment_elements), "/home/pamotis/anaconda3/Memoire/all_sentiment_elements.csv")
+
+ggplot(All_sentiment_elements, aes(x=Element, y = All_sentiment_elements$sentiment)) +
+  geom_point() +
+  geom_count() +
+  geom_text(aes(label = word), check_overlap = TRUE, vjust = 1, hjust = 1) + geom_hline(yintercept = mean(All_sentiment_elements$sentiment), color = "red", lty = 2)
+
+
+all_sentiment_element_wordcount <- All_sentiment_elements %>%
+  select( word, sentiment,Element,Period,comm_id) %>%
+  group_by(word,Element) %>%
+  tally()
+#Since we have 2 different populations (n) we will rename the second n to k.
+#"n" will be for the total amount of mentions of the word
+#"k" will be the amount of mentions of the same word by group
+colnames(all_sentiment_element_wordcount)[colnames(all_sentiment_element_wordcount)=="n"] <- "k"
+
+Bind_sent_and_word_forElement <- All_sentiment_elements %>%
+  full_join(all_sentiment_element_wordcount, by="word") 
+
+ggplot(Bind_sent_and_word_forElement, aes(y=k, x=sentiment, color=Element.y)) +
+  geom_point() +
+  geom_text(aes(label = word), check_overlap = TRUE, vjust = 1, hjust = 1) +
+  facet_wrap(~Element.y)
+
+Filtered_sent_vs_wordforElement <- Bind_sent_and_word_forElement %>%
+  filter(Element.y == "Towers" | Element.y == "TravelMode" | Element.y=="NPC" | Element.y=="Lanes"|
+           Element.y=="Jungle"|Element.y=="Heroes"|Element.y=="GameTime"|Element.y=="CardSystem") %>%
+  glimpse()
+
+ggplot(Filtered_sent_vs_wordforElement, aes(y=k, x=sentiment, color=Element.y)) +
+  labs(y="Group comments mentions")+
+  geom_point() +
+  geom_text(aes(label = word), check_overlap = TRUE, vjust = 1.1, hjust = 1.1)+ 
+  geom_vline(xintercept = mean(Filtered_sent_vs_wordforElement$sentiment), color = "red", lty = 2)
+
+
+#%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+#USAGE OVER TIME ANALYISIS
+#%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+
+
+#Steping back to the original df that was used, and got alterned, to get the sentiment analysis (C/P from above)
+All_sentiment_elements<-full_join(All_tower_comments, All_heroes_comments) %>%
+  full_join(.,All_gametime_comments) %>% full_join(.,All_cardsystem_comments )%>% full_join(.,All_npc_comments)%>%
+  full_join(.,All_jungle_comments)%>% full_join(.,All_lane_comments)%>% full_join(.,All_travelmode_comments)
+
+All_sentiment_elements$date<- as.POSIXct(as.numeric(All_sentiment_elements$created), origin="1970-01-01")
+
+All_sentiment_elements$Month <- as.Date(cut(All_sentiment_elements$date,
+                                            breaks = "month"))
+
+All_sentiment_elements %>% 
+  arrange(date) %>% glimpse() 
+
+# Visualize mentions of each substance across time
+
+ggplot(All_sentiment_elements, aes(Month)) + geom_histogram(aes(fill=factor(Period)), stat = "count") +
+  facet_grid(~Element)
+
+# Look at all substance mentions over time using the Joy Division plot
+
+ggplot(All_sentiment_elements, aes(x = Month, y = Element)) + geom_density_ridges()
+
+
+#%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+#Special objects EXTRA - DATA
+#%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+Harvesterdict<-c("Harvester","harvester")
+harvester_comments <- comments %>%
+  filter(str_detect(body, paste(Harvesterdict,collapse = '|'))) %>% glimpse()
+write.csv((harvester_comments), "/home/pamotis/anaconda3/Memoire/Harvester_mentions.csv")
+
+Fortnitedict<-c("Fortnite","fornite")
+Fortnite_comments <- comments %>%
+  filter(str_detect(body, paste(Fortnitedict,collapse = '|'))) %>% glimpse()
+write.csv((Fortnite_comments), "/home/pamotis/anaconda3/Memoire/Fortnite_mentions.csv")
+
+Harvesters<-data.frame(Ex=rep("Harvester",time=30))
+Fortnite<-data.frame(Ex=rep("Fortnite",time=55))
+
+Extra1<-cbind(harvester_comments, Harvesters)
+Extra2<-cbind(Fortnite_comments,Fortnite)
+Extra<-full_join(Extra1,Extra2)
+
+
+Extra <- Extra %>%
+  select(body, Ex, comm_id) %>%
+  unnest_tokens(word, body) %>%
+  anti_join(stop_words) %>%
+  inner_join(AFINN, by = "word") %>%
+  group_by(word,Ex,comm_id) %>%
+  summarize(sentiment = mean(afinn_score))
+
+
+
+  
+ggplot(Extra, aes(x=Ex, y = Extra$sentiment)) +
+  geom_point() +
+  geom_count() +
+  geom_text(aes(label = word), check_overlap = TRUE, vjust = 1.3, hjust = 1) +
+  geom_hline(yintercept = mean(Extra$sentiment), color = "red", lty = 2)
+
+
+Extra_wk <- Extra %>%
+  select( word, sentiment,Ex,comm_id) %>%
+  group_by(word,Ex) %>%
+  tally()
+
+Bind_sent_and_word_forExtra <- Extra %>%
+  full_join(Extra_wk, by="word") 
+
+ggplot(Bind_sent_and_word_forExtra, aes(y=n, x=sentiment, colour=Ex.y)) +
+  geom_point() +
+  geom_text(aes(label = word), check_overlap = TRUE, vjust = 1.3, hjust = 1) +
+  geom_hline(yintercept = mean(Extra$sentiment), color = "red", lty = 2) +
+  facet_wrap(~Ex.y)
+
+Filtered_sent_vs_wordforExtra <- Bind_sent_and_word_forExtra %>%
+  filter(Ex.y == "Fortnite" | Ex.y == "Harvester") %>%
+  glimpse()
+
+ggplot(Filtered_sent_vs_wordforExtra, aes(y=n, x=sentiment, color=Ex.y)) +
+  labs(y="Group comments mentions")+
+  geom_point() +
+  geom_count()+
+  geom_text(aes(label = word), check_overlap = TRUE, vjust = 1.1, hjust = 1.1)
+ 
+#%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+#USAGE OVER TIME ANALYISIS FOR EXTRA
+#%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+#Steping back to the original df that was used, and got alterned, to get the sentiment analysis (C/P from above)
+Extra1<-cbind(harvester_comments, Harvesters)
+Extra2<-cbind(Fortnite_comments,Fortnite)
+Extra<-full_join(Extra1,Extra2)
+
+Extra$date<- as.POSIXct(as.numeric(Extra$created), origin="1970-01-01")
+
+Extra$Month <- as.Date(cut(Extra$date,
+                                            breaks = "month"))
+
+Extra %>% 
+  arrange(date) %>% glimpse() 
+
+# Visualize mentions of each substance across time
+
+ggplot(Extra, aes(Month)) + geom_histogram(aes(fill=factor(Ex)), stat = "count") +
+  facet_grid(Ex~.)
+
+# Look at all substance mentions over time using the Joy Division plot
+
+ggplot(Extra, aes(x = Month, y = Ex)) + geom_density_ridges()
+
