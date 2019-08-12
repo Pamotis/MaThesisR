@@ -83,9 +83,9 @@ if __name__ == '__main__':
 # In[1]:
 
 
-reddit = praw.Reddit(client_id='uD5iCBN3rozW-w',
-                     client_secret="LqFZqIfuBogSF_r1GaCnQzL-Who", password='PASSWORD-MATHESIS',
-                     user_agent='ThesisMA', username='USERNAME-MATHESIS', refresh_token='71191681074-FXgfL8795OpCvAraws2TJ2Tu038')
+reddit = praw.Reddit(client_id='',
+                     client_secret="", password='PASSWORD-MATHESIS',
+                     user_agent='ThesisMA', username='USERNAME-MATHESIS', refresh_token='')
 print(reddit.user.me())
 
 
