@@ -45,10 +45,9 @@ write.csv((comments), "/home/pamotis/anaconda3/Memoire/ParagonCommentsClean.csv"
 #AFINN dictionary
 #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-
-AFINN <- sentiments %>%
-  filter(lexicon == "AFINN") %>%
-  select(word, afinn_score = score)
+lexicon<-get_sentiments("afinn")
+names(lexicon) <- c("word","afinn_score")
+AFINN<- as.data.frame(lexicon)
 
 #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 #Code used to retrieve comments later
